@@ -63,11 +63,10 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: python${{ matrix.python-version }}
-          report_type: test_results
 
   prek:
     name: Prek checks
