@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
@@ -127,12 +128,12 @@ def _make_wrapped_aenter(
             for name, dependency in dependencies.items():
                 setattr(self, name, await stack.enter_async_context(dependency))
             result = await original_aenter(self)
-        except BaseException:
+        except Exception:
             for name in dependencies:
                 delattr(self, name)
             if context_reset:
                 context_reset()
-            await stack.__aexit__(None, None, None)
+            await stack.__aexit__(*sys.exc_info())
             raise
 
         self.__dependency_state__ = _DependencyState(stack, context_reset)
@@ -159,7 +160,7 @@ def _make_wrapped_aexit(
         finally:
             state = self.__dependency_state__
             try:
-                await state.stack.__aexit__(None, None, None)
+                await state.stack.__aexit__(exc_type, exc_value, traceback)
             finally:
                 try:
                     if state.context_reset:

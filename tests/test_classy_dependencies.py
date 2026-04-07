@@ -129,6 +129,51 @@ async def test_lifecycle_ordering() -> None:
     assert order == ["a-enter", "b-enter", "enter", "exit", "b-exit", "a-exit"]
 
 
+async def test_class_dep_sees_exception_from_body() -> None:
+    seen_exception: BaseException | None = None
+
+    @asynccontextmanager
+    async def tracked_cleanup() -> AsyncGenerator[str]:
+        nonlocal seen_exception
+        try:
+            yield "resource"
+        except Exception as exc:
+            seen_exception = exc
+            raise
+
+    class TransactionalDependency(Dependency[str]):
+        resource: str = Depends(tracked_cleanup)
+
+        async def __aenter__(self) -> str:
+            return self.resource
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with TransactionalDependency():
+            raise RuntimeError("boom")
+
+    assert isinstance(seen_exception, RuntimeError)
+
+
+async def test_class_dep_sees_clean_exit() -> None:
+    exit_reason: list[str] = []
+
+    @asynccontextmanager
+    async def tracked_cleanup() -> AsyncGenerator[str]:
+        yield "resource"
+        exit_reason.append("clean")
+
+    class TransactionalDependency(Dependency[str]):
+        resource: str = Depends(tracked_cleanup)
+
+        async def __aenter__(self) -> str:
+            return self.resource
+
+    async with TransactionalDependency():
+        pass
+
+    assert exit_reason == ["clean"]
+
+
 async def test_integration_with_resolved_dependencies() -> None:
     def get_connection() -> str:
         return "db-conn"
@@ -219,9 +264,11 @@ async def test_error_in_class_dep_cleans_up_others() -> None:
 
     @asynccontextmanager
     async def good_resource() -> AsyncGenerator[str]:
-        yield "good"
-        nonlocal cleaned_up
-        cleaned_up = True
+        try:
+            yield "good"
+        finally:
+            nonlocal cleaned_up
+            cleaned_up = True
 
     class Broken(Dependency[str]):
         async def __aenter__(self) -> str:
@@ -245,9 +292,11 @@ async def test_error_in_aenter_cleans_up_deps() -> None:
 
     @asynccontextmanager
     async def managed_resource() -> AsyncGenerator[str]:
-        yield "resource"
-        nonlocal cleaned_up
-        cleaned_up = True
+        try:
+            yield "resource"
+        finally:
+            nonlocal cleaned_up
+            cleaned_up = True
 
     class FailingDep(Dependency[str]):
         resource: str = Depends(managed_resource)
