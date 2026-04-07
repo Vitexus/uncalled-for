@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import abc
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 T = TypeVar("T", covariant=True)
-
-if TYPE_CHECKING:
-    from .classy import _DependencyState
 
 
 class Dependency(abc.ABC, Generic[T]):
@@ -37,7 +34,6 @@ class Dependency(abc.ABC, Generic[T]):
 
     __own_class_dependencies__: ClassVar[dict[str, Dependency[Any]]]
     __class_dependencies__: ClassVar[dict[str, Dependency[Any]]]
-    __dependency_state__: _DependencyState
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)

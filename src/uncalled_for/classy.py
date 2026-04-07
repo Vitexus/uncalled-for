@@ -4,10 +4,51 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AsyncExitStack
+from contextvars import ContextVar
 from types import TracebackType
 from typing import Any
 
 from .base import Dependency
+
+
+class _ContextSensitiveAttr:
+    """Descriptor that stores values in a ContextVar for task isolation.
+
+    Each async task sees its own value for the attribute, even when multiple
+    tasks share the same Dependency instance.  Values are stored in a
+    ``ContextVar[dict[int, Any]]`` keyed by ``id(instance)``.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._store: ContextVar[dict[int, Any]] = ContextVar(
+            f"uncalled_for_{name}"
+        )
+
+    def __get__(self, instance: Any, owner: type | None = None) -> Any:
+        if instance is None:
+            return self
+        try:
+            return self._store.get()[id(instance)]
+        except (LookupError, KeyError):
+            raise AttributeError(
+                f"'{type(instance).__name__}' object has no attribute"
+                f" '{self.name}'"
+            ) from None
+
+    def __set__(self, instance: Any, value: Any) -> None:
+        try:
+            store = self._store.get()
+        except LookupError:
+            store = {}
+            self._store.set(store)
+        store[id(instance)] = value
+
+    def __delete__(self, instance: Any) -> None:
+        try:
+            del self._store.get()[id(instance)]
+        except (LookupError, KeyError):
+            pass
 
 
 class _DependencyState:
@@ -90,6 +131,8 @@ def _make_wrapped_aenter(
                 setattr(self, name, await stack.enter_async_context(dependency))
             result = await original_aenter(self)
         except BaseException:
+            for name in dependencies:
+                delattr(self, name)
             if context_reset:
                 context_reset()
             await stack.__aexit__(None, None, None)
@@ -102,7 +145,10 @@ def _make_wrapped_aenter(
     return wrapped_aenter
 
 
-def _make_wrapped_aexit(original_aexit: Any) -> Any:
+def _make_wrapped_aexit(
+    dependencies: dict[str, Dependency[Any]],
+    original_aexit: Any,
+) -> Any:
     """Build an ``__aexit__`` wrapper that cleans up class dependencies."""
 
     async def wrapped_aexit(
@@ -118,8 +164,13 @@ def _make_wrapped_aexit(original_aexit: Any) -> Any:
             try:
                 await state.stack.__aexit__(None, None, None)
             finally:
-                if state.context_reset:
-                    state.context_reset()
+                try:
+                    if state.context_reset:
+                        state.context_reset()
+                finally:
+                    for name in dependencies:
+                        delattr(self, name)
+                    del self.__dependency_state__
 
     wrapped_aexit.__original_aexit__ = original_aexit  # type: ignore[attr-defined]
     return wrapped_aexit
@@ -137,6 +188,7 @@ def setup_class_dependencies(cls: type[Dependency[Any]]) -> None:
 
     for name in own_dependencies:
         delattr(cls, name)
+        setattr(cls, name, _ContextSensitiveAttr(name))
 
     all_dependencies = _collect_mro_dependencies(cls)
 
@@ -151,7 +203,12 @@ def setup_class_dependencies(cls: type[Dependency[Any]]) -> None:
     original_aenter = _unwrap(cls, "__aenter__", "__original_aenter__")
     original_aexit = _unwrap(cls, "__aexit__", "__original_aexit__")
 
+    cls.__dependency_state__ = _ContextSensitiveAttr(  # type: ignore[assignment]
+        "__dependency_state__"
+    )
     cls.__aenter__ = _make_wrapped_aenter(  # type: ignore[attr-defined]
         all_dependencies, original_aenter
     )
-    cls.__aexit__ = _make_wrapped_aexit(original_aexit)  # type: ignore[attr-defined]
+    cls.__aexit__ = _make_wrapped_aexit(  # type: ignore[attr-defined]
+        all_dependencies, original_aexit
+    )
