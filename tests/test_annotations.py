@@ -74,6 +74,67 @@ def test_extracts_only_dependency_metadata() -> None:
     assert result["x"] == [dependency]
 
 
+def test_finds_bare_dependency_class_in_annotated_metadata() -> None:
+    async def my_func(x: Annotated[int, Tracker]) -> None: ...
+
+    result = get_annotation_dependencies(my_func)
+    assert "x" in result
+    assert len(result["x"]) == 1
+    assert isinstance(result["x"][0], Tracker)
+
+
+def test_ignores_non_dependency_classes_in_metadata() -> None:
+    async def my_func(x: Annotated[int, str, bytes]) -> None: ...
+
+    result = get_annotation_dependencies(my_func)
+    assert result == {}
+
+
+def test_mixes_bare_class_and_instance_metadata_on_same_parameter() -> None:
+    instance_dep = Tracker()
+
+    class BareDep(Dependency[str]):
+        async def __aenter__(self) -> str: ...
+
+    async def my_func(x: Annotated[int, instance_dep, BareDep]) -> None: ...
+
+    result = get_annotation_dependencies(my_func)
+    assert len(result["x"]) == 2
+    assert result["x"][0] is instance_dep
+    assert isinstance(result["x"][1], BareDep)
+
+
+def test_bare_dependency_class_with_required_args_raises() -> None:
+    class NeedsArgs(Dependency[str]):
+        def __init__(self, required: int) -> None: ...
+
+        async def __aenter__(self) -> str: ...
+
+    async def my_func(x: Annotated[int, NeedsArgs]) -> None: ...
+
+    with pytest.raises(TypeError):
+        get_annotation_dependencies(my_func)
+
+
+async def test_bare_dependency_class_is_resolved_with_bind_and_enter() -> None:
+    bound: list[tuple[str, Any]] = []
+
+    class Recorder(Dependency["Recorder"]):
+        def bind_to_parameter(self, name: str, value: Any) -> "Recorder":
+            bound.append((name, value))
+            return self
+
+        async def __aenter__(self) -> "Recorder":
+            return self
+
+    async def my_func(x: Annotated[int, Recorder]) -> None: ...
+
+    async with resolved_dependencies(my_func, {"x": 42}):
+        pass
+
+    assert bound == [("x", 42)]
+
+
 def test_multiple_dependencies_on_same_parameter() -> None:
     class DependencyA(Dependency[str]):
         async def __aenter__(self) -> str: ...
