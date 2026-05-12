@@ -1,0 +1,26 @@
+Source: python-uncalled-for
+Section: python
+Priority: optional
+Maintainer: Vítězslav Dvořák <info@vitexsoftware.cz>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-hatchling,
+Standards-Version: 4.7.0
+Homepage: https://github.com/chrisguidry/uncalled-for
+Vcs-Git: https://github.com/Vitexus/uncalled-for.git
+Vcs-Browser: https://github.com/Vitexus/uncalled-for
+Rules-Requires-Root: no
+
+Package: python3-uncalled-for
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+Description: Async dependency injection for Python functions
+ uncalled-for provides async dependency injection for Python functions,
+ allowing dependencies to be injected at call time from a shared context.
+ .
+ This package provides the Python 3 library.

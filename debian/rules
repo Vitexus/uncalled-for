@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=uncalled_for
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_configure:
+	sed -i 's/dynamic = \["version"\]/version = "0.3.2"/' pyproject.toml
+	sed -i 's/requires = \["hatchling", "hatch-vcs"\]/requires = ["hatchling"]/' pyproject.toml
+	sed -i '/\[tool\.hatch\.version\]/,/^$$/d' pyproject.toml
+	dh_auto_configure
+
+override_dh_auto_clean:
+	dh_auto_clean
+	git checkout pyproject.toml 2>/dev/null || true
+
+override_dh_auto_test:
+	# Skip tests

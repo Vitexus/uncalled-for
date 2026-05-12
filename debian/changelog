@@ -1,0 +1,6 @@
+python-uncalled-for (0.3.2-1) unstable; urgency=low
+
+  * Initial Debian packaging
+  * Async dependency injection for Python functions
+
+ -- Vítězslav Dvořák <info@vitexsoftware.cz>  Tue, 12 May 2026 11:45:24 +0200
